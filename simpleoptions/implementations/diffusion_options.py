@@ -49,9 +49,7 @@ class DiffusionOptionGenerator(SubgoalOptionGenerator):
         Returns:
             List: A list of the generated Diffusion options.
         """
-        # Add primitive options to the environment.
-        primitive_options = [PrimitiveOption(action, env) for action in env.get_action_space()]
-        env.set_options(primitive_options)
+
         env.reset()
 
         # Generate the environment's state-transition graph and ensure that it is undirected.
