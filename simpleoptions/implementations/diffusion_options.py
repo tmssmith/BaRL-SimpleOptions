@@ -21,6 +21,7 @@ class DiffusionOptionGenerator(SubgoalOptionGenerator):
         option_learning_max_steps: int,
         option_learning_max_episode_steps: int,
         option_learning_default_action_value: float,
+        use_value_iteration: bool = False,
         *args,
         **kwargs,
     ):
@@ -34,6 +35,7 @@ class DiffusionOptionGenerator(SubgoalOptionGenerator):
         )
         self.num_options = num_options
         self.time_scale = time_scale
+        self.use_value_iteration = use_value_iteration
 
     def generate_options(
         self, env: BaseEnvironment, return_subgoals: bool = False, debug: bool = False
@@ -85,7 +87,7 @@ class DiffusionOptionGenerator(SubgoalOptionGenerator):
             )
 
             options[i] = DiffusionOption(env, subgoal, initiation_set - {subgoal})
-            self.train_option(options[i])
+            self.train_option(options[i], use_value_iteration=self.use_value_iteration)
 
         # If Debugging, output annotated graph for inspection.
         if debug:

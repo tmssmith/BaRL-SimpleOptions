@@ -32,7 +32,21 @@ class SubgoalOptionGenerator(GenericOptionGenerator):
     def generate_options(self, env: BaseEnvironment, directed: bool, goal_states: List[Hashable] = None):
         pass
 
-    def train_option(self, option: "SubgoalOption"):
+    def train_option(self, option: "SubgoalOption", use_value_iteration: bool = False):
+        """
+        Train option policy using either Q-learning or value iteration.
+
+        Args:
+            option: The subgoal option to train
+            use_value_iteration: If True, use value iteration; otherwise use Q-learning
+        """
+        if use_value_iteration:
+            self._train_option_with_value_iteration(option)
+        else:
+            self._train_option_with_q_learning(option)
+
+    def _train_option_with_q_learning(self, option: "SubgoalOption"):
+        """Train option policy using Q-learning (original implementation)."""
         q_table = defaultdict(lambda: self.default_action_value)
 
         # Create a list of states in the initation set to draw from.
@@ -95,6 +109,67 @@ class SubgoalOptionGenerator(GenericOptionGenerator):
                     break
 
         option.q_table = q_table
+
+    def _train_option_with_value_iteration(self, option: "SubgoalOption"):
+        """Train option policy using value iteration to compute Q-values."""
+        q_table = defaultdict(lambda: self.default_action_value)
+
+        # Get all states in initiation set (excluding subgoal)
+        states = [s for s in option.initiation_set if s != option.subgoal and not option.env.is_state_terminal(s)]
+
+        # Value iteration until convergence
+        theta = 1e-8  # Convergence threshold
+        while True:
+            old_q_table = q_table.copy()
+            delta = 0
+
+            for state in states:
+                for action in option.env.get_available_options(state):
+                    # Compute Q-value using Bellman equation
+                    q_value = self._compute_q_value(state, action, option, q_table)
+                    q_table[(hash(state), hash(action))] = q_value
+                    delta = max(delta, abs(q_value - old_q_table[(hash(state), hash(action))]))
+
+            if delta < theta:
+                break
+
+        option.q_table = q_table
+
+    def _compute_q_value(self, state: Hashable, action: Hashable, option: "SubgoalOption", q_table: Dict) -> float:
+        """Compute Q-value for a state-action pair using the Bellman equation."""
+        transitions = option.env.get_successors(state, [action])
+
+        expected_value = 0.0
+        for (next_state, transition_reward), probability in transitions:
+            # Compute reward based on the same logic as Q-learning
+            if next_state == option.subgoal:  # Agent reached subgoal
+                reward = 1.0
+            elif next_state not in option.initiation_set:  # Agent left the initiation set
+                reward = -1.0
+            elif option.env.is_state_terminal(next_state):  # Agent reached a terminal state
+                reward = -1.0
+            else:  # Otherwise
+                reward = -0.001
+
+            # Compute max Q-value for next state
+            if (
+                next_state == option.subgoal
+                or next_state not in option.initiation_set
+                or option.env.is_state_terminal(next_state)
+            ):
+                max_next_q = 0  # Terminal states have value 0
+            else:
+                available_actions = option.env.get_available_options(next_state)
+                if available_actions:
+                    max_next_q = max(
+                        [q_table[(hash(next_state), hash(next_action))] for next_action in available_actions]
+                    )
+                else:
+                    max_next_q = 0
+
+            expected_value += probability * (reward + self.gamma * max_next_q)
+
+        return expected_value
 
     def _select_action(self, state: Hashable, option: "SubgoalOption", q_table: Dict):
         available_actions = [action for action in option.env.get_available_options(state)]
