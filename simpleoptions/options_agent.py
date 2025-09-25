@@ -583,8 +583,8 @@ class OptionAgent:
                         ):
                             executing_options.pop()
 
-            cumulative_reward = discounted_return(rewards, self.gamma)
-            test_total_rewards[test_run] = cumulative_reward
+            return_value = discounted_return(rewards, self.gamma)
+            test_total_rewards[test_run] = return_value
 
         return statistics.mean(test_total_rewards)
 
