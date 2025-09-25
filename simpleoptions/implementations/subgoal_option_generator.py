@@ -2,6 +2,7 @@ import random
 import copy
 
 from simpleoptions import BaseEnvironment, BaseOption
+from simpleoptions.primitive_option import PrimitiveOption
 from simpleoptions.implementations import GenericOptionGenerator
 
 from typing import List, Hashable, Set, Dict
@@ -124,20 +125,22 @@ class SubgoalOptionGenerator(GenericOptionGenerator):
             delta = 0
 
             for state in states:
-                for action in option.env.get_available_options(state):
+                for primitive_option in option.env.get_available_options(state):
                     # Compute Q-value using Bellman equation
-                    q_value = self._compute_q_value(state, action, option, q_table)
-                    q_table[(hash(state), hash(action))] = q_value
-                    delta = max(delta, abs(q_value - old_q_table[(hash(state), hash(action))]))
+                    q_value = self._compute_q_value(state, primitive_option, option, q_table)
+                    q_table[(hash(state), hash(primitive_option))] = q_value
+                    delta = max(delta, abs(q_value - old_q_table[(hash(state), hash(primitive_option))]))
 
             if delta < theta:
                 break
 
         option.q_table = q_table
 
-    def _compute_q_value(self, state: Hashable, action: Hashable, option: "SubgoalOption", q_table: Dict) -> float:
+    def _compute_q_value(
+        self, state: Hashable, primitive_option: PrimitiveOption, option: "SubgoalOption", q_table: Dict
+    ) -> float:
         """Compute Q-value for a state-action pair using the Bellman equation."""
-        transitions = option.env.get_successors(state, [action])
+        transitions = option.env.get_successors(state, [primitive_option.action])
 
         expected_value = 0.0
         for (next_state, transition_reward), probability in transitions:
