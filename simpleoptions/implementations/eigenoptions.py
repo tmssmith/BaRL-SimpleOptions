@@ -85,7 +85,9 @@ class EigenoptionGenerator(GenericOptionGenerator):
 
         eigenoptions = [Eigenoption(env, pvf, pvf_id) for pvf_id, pvf in pvfs.items()]
 
-        for i, eigenoption in tqdm(enumerate(eigenoptions), desc="Training Eigenoptions..."):
+        for i, eigenoption in tqdm(
+            enumerate(eigenoptions), desc="Training Eigenoptions..."
+        ):
             self.train_option(eigenoptions[i])
 
         # If Debugging, output annotated graph for inspection.
@@ -94,10 +96,14 @@ class EigenoptionGenerator(GenericOptionGenerator):
             for eigenoption in eigenoptions:
                 for state in stg.nodes:
                     if state in eigenoption.state_values:
-                        stg.nodes[state][f"PVF {eigenoption.pvf_id} Values"] = eigenoption.state_values[state]
+                        stg.nodes[state][f"PVF {eigenoption.pvf_id} Values"] = (
+                            eigenoption.state_values[state]
+                        )
                         print(f"PVF {eigenoption.pvf_id} Values")
                     if state in eigenoption.primitive_policy:
-                        stg.nodes[state][f"PVF {eigenoption.pvf_id} Policy"] = str(eigenoption.policy(state))
+                        stg.nodes[state][f"PVF {eigenoption.pvf_id} Policy"] = str(
+                            eigenoption.policy(state)
+                        )
             nx.write_gexf(stg, "eigen_test.gexf", prettyprint=True)
 
         return eigenoptions, pvfs
@@ -116,7 +122,9 @@ class EigenoptionGenerator(GenericOptionGenerator):
         """
 
         def _get_available_primitives(state):
-            return ["EIG_TERMINATE"] + [action for action in option.env.get_available_actions(state)]
+            return ["EIG_TERMINATE"] + [
+                action for action in option.env.get_available_actions(state)
+            ]
 
         def _intrinsic_reward(state, next_state):
             reward = option.pvf[next_state] - option.pvf[state]
@@ -125,6 +133,28 @@ class EigenoptionGenerator(GenericOptionGenerator):
                 return 0
             else:
                 return reward
+
+        def _compute_action_value(state, action, values):
+            """Compute expected value of taking action in state."""
+            if action == TERMINATE_ACTION:
+                return 0.0
+
+            transitions = option.env.get_successors(state, [action])
+
+            expected_value = 0.0
+            for (next_state, transition_reward), probability in transitions:
+                reward = _intrinsic_reward(state, next_state)
+
+                if next_state == TERMINATE_STATE or option.env.is_state_terminal(
+                    next_state
+                ):
+                    v_next = 0
+                else:
+                    v_next = values[next_state]
+
+                expected_value += probability * (reward + self.gamma * v_next)
+
+            return expected_value
 
         option.env.reset()
 
@@ -145,21 +175,11 @@ class EigenoptionGenerator(GenericOptionGenerator):
                         continue
 
                     v_old = values[state]
-
                     action = policy[state]
                     if action == TERMINATE_ACTION:
-                        next_state = TERMINATE_STATE
-                        reward = 0
+                        values[state] = 0
                     else:
-                        next_state = option.env.get_successors(state, [action])[0]
-                        reward = _intrinsic_reward(state, next_state)
-
-                    if next_state == TERMINATE_STATE or option.env.is_state_terminal(next_state):
-                        v_next = 0
-                    else:
-                        v_next = values[next_state]
-
-                    values[state] = reward + self.gamma * v_next
+                        values[state] = _compute_action_value(state, action, values)
 
                     delta = max(delta, abs(v_old - values[state]))
                 if delta < THETA:
@@ -172,29 +192,18 @@ class EigenoptionGenerator(GenericOptionGenerator):
                     continue
 
                 a_old = policy[state]
-
                 best_action = None
                 best_value = -np.inf
+
                 for action in _get_available_primitives(state):
                     if action == TERMINATE_ACTION:
-                        next_state = TERMINATE_STATE
-                        reward = 0
+                        action_value = 0
                     else:
-                        next_state = option.env.get_successors(state, [action])[0]
-                        reward = _intrinsic_reward(state, next_state)
+                        action_value = _compute_action_value(state, action, values)
 
-                    if next_state == TERMINATE_STATE:
-                        v_next = 0
-                    elif option.env.is_state_terminal(next_state):
-                        continue
-                    else:
-                        v_next = values[next_state]
-
-                    value = reward + self.gamma * v_next
-
-                    if value > best_value:
+                    if action_value > best_value:
                         best_action = action
-                        best_value = value
+                        best_value = action_value
 
                 policy[state] = best_action
 
@@ -217,18 +226,24 @@ class Eigenoption(BaseOption):
         self.state_values = {}
 
         # Add primitive options to the environment.
-        primitive_options = [PrimitiveOption(action, self.env) for action in self.env.get_action_space()]
+        primitive_options = [
+            PrimitiveOption(action, self.env) for action in self.env.get_action_space()
+        ]
         self.env.set_options(primitive_options)
 
         self.primitive_actions = {
-            option.action: option for option in self.env.options if isinstance(option, PrimitiveOption)
+            option.action: option
+            for option in self.env.get_option_space()
+            if isinstance(option, PrimitiveOption)
         }
 
     def initiation(self, state):
         return not self.termination(state)
 
     def termination(self, state):
-        if self.primitive_policy[state] == TERMINATE_ACTION or self.env.is_state_terminal(state):
+        if self.primitive_policy[
+            state
+        ] == TERMINATE_ACTION or self.env.is_state_terminal(state):
             return float(True)
         else:
             return float(False)
@@ -260,11 +275,3 @@ class Eigenoption(BaseOption):
 
     def __ne__(self, other):
         return not self == other
-
-
-if __name__ == "__main__":
-    from simpleenvs.envs.discrete_rooms import DiscreteXuFourRooms
-
-    env = DiscreteXuFourRooms()
-    gen = EigenoptionGenerator(5, 0.9)
-    options = gen.generate_options(env, debug=True)
