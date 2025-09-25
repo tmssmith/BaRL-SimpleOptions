@@ -73,19 +73,8 @@ class SubgoalOptionGenerator(GenericOptionGenerator):
                 time_steps += 1
                 episode_steps += 1
 
-                # Compute reward and terminality.
-                if next_state == option.subgoal:  # Agent reached subgoal.
-                    reward = 1.0
-                    terminal = True
-                elif next_state not in option.initiation_set:  # Agent left the initiation set.
-                    reward = -1.0
-                    terminal = True
-                elif done:  # Agent reached a terminal state.
-                    reward = -1.0
-                    terminal = True
-                else:  # Otherwise...
-                    reward = -0.001
-                    terminal = False
+                reward = self._get_reward(option, next_state)
+                terminal = option.termination(next_state) or done
 
                 # Perform Q-Learning update.
                 old_q = q_table[(hash(state), hash(action))]
@@ -115,16 +104,13 @@ class SubgoalOptionGenerator(GenericOptionGenerator):
         """Train option policy using value iteration to compute Q-values."""
         q_table = defaultdict(lambda: self.default_action_value)
 
-        # Get all states in initiation set (excluding subgoal)
-        states = [s for s in option.initiation_set if s != option.subgoal and not option.env.is_state_terminal(s)]
-
         # Value iteration until convergence
         theta = 1e-8  # Convergence threshold
         while True:
             old_q_table = q_table.copy()
             delta = 0
 
-            for state in states:
+            for state in option.initiation_set:
                 for primitive_option in option.env.get_available_options(state):
                     # Compute Q-value using Bellman equation
                     q_value = self._compute_q_value(state, primitive_option, option, q_table)
@@ -145,21 +131,10 @@ class SubgoalOptionGenerator(GenericOptionGenerator):
         expected_value = 0.0
         for (next_state, transition_reward), probability in transitions:
             # Compute reward based on the same logic as Q-learning
-            if next_state == option.subgoal:  # Agent reached subgoal
-                reward = 1.0
-            elif next_state not in option.initiation_set:  # Agent left the initiation set
-                reward = -1.0
-            elif option.env.is_state_terminal(next_state):  # Agent reached a terminal state
-                reward = -1.0
-            else:  # Otherwise
-                reward = -0.001
+            reward = self._get_reward(option, next_state)
 
             # Compute max Q-value for next state
-            if (
-                next_state == option.subgoal
-                or next_state not in option.initiation_set
-                or option.env.is_state_terminal(next_state)
-            ):
+            if option.termination(next_state):
                 max_next_q = 0  # Terminal states have value 0
             else:
                 available_actions = option.env.get_available_options(next_state)
@@ -173,6 +148,17 @@ class SubgoalOptionGenerator(GenericOptionGenerator):
             expected_value += probability * (reward + self.gamma * max_next_q)
 
         return expected_value
+
+    def _get_reward(self, option: "SubgoalOption", state: Hashable) -> float:
+        if state == option.subgoal:  # Agent reached subgoal
+            reward = 1.0
+        elif state not in option.initiation_set:  # Agent left the initiation set
+            reward = -1.0
+        elif option.env.is_state_terminal(state):  # Agent reached a terminal state
+            reward = -1.0
+        else:  # Otherwise
+            reward = -0.001
+        return reward
 
     def _select_action(self, state: Hashable, option: "SubgoalOption", q_table: Dict):
         available_actions = [action for action in option.env.get_available_options(state)]
