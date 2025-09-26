@@ -145,6 +145,7 @@ class DiffusionOptionGenerator(SubgoalOptionGenerator):
         e_vals = 1 - 0.5 * e_vals
         e_val_pow = e_vals**self.time_scale
         d_root_vec = np.diag(D_root)
+        D_diag = d_root_vec**2
         f = np.zeros(right_e_vecs.shape[0])
 
         for s in range(f.shape[0]):
@@ -153,7 +154,7 @@ class DiffusionOptionGenerator(SubgoalOptionGenerator):
                 f_vec += e_val_pow[i] * left_e_vecs[i, s] * right_e_vecs[i]
             f_vec /= d_root_vec[s]
             f_vec *= d_root_vec
-            f[s] = np.linalg.norm(f_vec, ord=2) ** 2
+            f[s] = np.sum(D_diag * (f_vec**2))
         return f
 
     def _add_f_score_to_graph(self, stg, f_dict):
