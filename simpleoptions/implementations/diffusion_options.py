@@ -4,8 +4,11 @@ import networkx as nx
 
 from simpleoptions import BaseEnvironment, PrimitiveOption
 from simpleoptions.implementations import SubgoalOptionGenerator, SubgoalOption
+from simpleoptions.options_agent import OptionAgent
+from simpleoptions.option import BaseOption
 
-from typing import List, Set, Dict, Hashable
+from typing import List, Set, Dict, Hashable, Union
+from numpy.random import Generator as RNG
 
 from tqdm import tqdm
 
@@ -195,6 +198,92 @@ class DiffusionOption(SubgoalOption):
 
     def __ne__(self, other):
         return not self == other
+
+
+class DiffusionAgent(OptionAgent):
+    """
+    An agent that replicates the original MATLAB exploration approach for diffusion options.
+
+    This agent uses a 50/50 chance to choose between options and primitive actions,
+    and only learns Q-values for primitive actions, treating options as exploration tools.
+    """
+
+    def __init__(
+        self,
+        env: "BaseEnvironment",
+        test_env: "BaseEnvironment" = None,
+        epsilon: float = 0.15,
+        macro_alpha: float = 0.2,
+        intra_option_alpha: float = 0.2,
+        gamma: float = 1.0,
+        default_action_value=0.0,
+        n_step_updates=False,
+        rng: "RNG" = None,
+        *args,
+        **kwargs,
+    ):
+        super().__init__(
+            env,
+            test_env,
+            epsilon,
+            macro_alpha,
+            intra_option_alpha,
+            gamma,
+            default_action_value,
+            n_step_updates,
+            rng,
+            *args,
+            **kwargs,
+        )
+
+    def select_action(
+        self, state: Hashable, executing_options: List["BaseOption"], test: bool = False
+    ) -> Union[BaseOption, Hashable, None]:
+        """
+        Returns the selected action using the original implementation of the diffusion options exploration approach.
+
+        Implementation logic:
+        1. If there's a single maximum Q-value, take that action (greedy)
+        2. If there are multiple maximums (ties), then explore:
+           - 50% chance to choose a random option and follow its policy
+           - 50% chance to choose a random primitive action
+        """
+
+        # If we are currently following an option's policy, return what it selects
+        if len(executing_options) > 0:
+            return executing_options[-1].policy(state, test)
+
+        # Get available primitive actions
+        primitive_actions = [
+            action for action in self.env.get_available_options(state) if not isinstance(action, BaseOption)
+        ]
+
+        if not primitive_actions:
+            return None
+
+        # Get Q-values for primitive actions
+        q_values = [self.q_table[(hash(state), hash(action))] for action in primitive_actions]
+        max_q = max(q_values)
+
+        # Find actions with maximum Q-value
+        max_actions = [action for action, q_val in zip(primitive_actions, q_values) if q_val == max_q]
+        is_one_maximum = len(max_actions) == 1
+
+        if is_one_maximum and not test:
+            # take the greedy actio
+            return max_actions[0]
+        else:
+            # explore with 50/50 option/primitive
+            if not test and self.rng.random() < 0.5:  # 50% chance to choose option
+                # Choose a random diffusion option
+                available_options = [
+                    opt for opt in self.env.get_available_options(state) if isinstance(opt, DiffusionOption)
+                ]
+                if available_options:
+                    return self.rng.choice(available_options)
+
+            # Choose a random primitive action (50% chance, or if no options available)
+            return self.rng.choice(primitive_actions)
 
 
 if __name__ == "__main__":
