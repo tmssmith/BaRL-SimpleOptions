@@ -254,12 +254,10 @@ class DiffusionAgent(OptionAgent):
             return executing_options[-1].policy(state, test)
 
         # Get available primitive actions
-        primitive_actions = [
-            action for action in self.env.get_available_options(state) if not isinstance(action, BaseOption)
-        ]
+        primitive_actions = [action for action in self.env.get_available_options(state, exploration=False)]
 
         if not primitive_actions:
-            return None
+            raise RuntimeError("No primitive actions available in the current state.")
 
         # Get Q-values for primitive actions
         q_values = [self.q_table[(hash(state), hash(action))] for action in primitive_actions]
@@ -277,7 +275,9 @@ class DiffusionAgent(OptionAgent):
             if not test and self.rng.random() < 0.5:  # 50% chance to choose option
                 # Choose a random diffusion option
                 available_options = [
-                    opt for opt in self.env.get_available_options(state) if isinstance(opt, DiffusionOption)
+                    opt
+                    for opt in self.env.get_available_options(state, exploration=True)
+                    if isinstance(opt, DiffusionOption)
                 ]
                 if available_options:
                     return self.rng.choice(available_options)
